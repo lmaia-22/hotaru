@@ -10,6 +10,9 @@ function AuthCallbackContent() {
   const [status, setStatus] = useState<'loading' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
   const supabase = createClient();
+  
+  // Check if Supabase automatically detected and exchanged the session
+  // This happens when detectSessionInUrl is true and PKCE flow is used
 
   useEffect(() => {
     const createOrUpdateProfile = async () => {
@@ -50,7 +53,17 @@ function AuthCallbackContent() {
           return;
         }
 
-        // Handle magic link with token
+        // With detectSessionInUrl: true, Supabase may have already detected and exchanged the session
+        // Check if we already have a valid session before trying manual exchange
+        const { data: { session: existingSession } } = await supabase.auth.getSession();
+        if (existingSession) {
+          console.log('Session already detected by Supabase (detectSessionInUrl)');
+          await createOrUpdateProfile();
+          router.push('/');
+          return;
+        }
+
+        // Handle magic link with token (old format, doesn't use PKCE)
         if (token && type === 'magiclink') {
           const { error: verifyError } = await supabase.auth.verifyOtp({
             ...(email ? { email, token } : { token_hash: token }),
@@ -70,7 +83,7 @@ function AuthCallbackContent() {
           return;
         }
 
-        // Handle code (OAuth or magic link)
+        // Handle code (OAuth or magic link with PKCE)
         if (code) {
           // Log for debugging
           console.log('Processing callback with code:', {
@@ -119,15 +132,20 @@ function AuthCallbackContent() {
           let verifyError2: any = null;
           let exchangeError: any = null;
           
-          // Strategy: Magic links should use verifyOtp first (doesn't need PKCE)
-          // OAuth must use exchangeCodeForSession (requires PKCE)
+          // Strategy: For magic links, try verifyOtp first (doesn't need PKCE/cookies)
+          // For OAuth, must use exchangeCodeForSession (requires PKCE cookies)
           if (isLikelyMagicLink) {
-            // Magic link: Try verifyOtp first (no PKCE needed)
+            // Magic link: Try verifyOtp first (no PKCE needed, works in new tabs)
             const emailToUse = email || savedEmail;
             
-            // Try verifyOtp with email if available
+            // IMPORTANT: When Supabase uses PKCE for magic links, it sends a 'code'
+            // But verifyOtp expects a 'token', not 'code'. However, we can try it.
+            // If verifyOtp fails, it means the magic link is using PKCE and we need cookies.
+            
+            // Try verifyOtp with email if available (this is the preferred method for magic links)
             if (emailToUse) {
               console.log('Magic link flow - attempting verifyOtp with email...', emailToUse);
+              // Try with code as token (magic links with PKCE may send code instead of token)
               const result = await supabase.auth.verifyOtp({
                 email: emailToUse,
                 token: code,
@@ -137,7 +155,7 @@ function AuthCallbackContent() {
               verifyError = result.error;
 
               if (!verifyError) {
-                console.log('Magic link verified successfully with email');
+                console.log('Magic link verified successfully with email via verifyOtp');
                 localStorage.removeItem('hotaru_magic_link_email');
                 await createOrUpdateProfile();
                 router.push('/');
@@ -145,11 +163,11 @@ function AuthCallbackContent() {
               }
               
               console.log('verifyOtp with email failed:', verifyError);
+              console.log('This may indicate the magic link is using PKCE and requires cookies');
             }
 
-            // Try verifyOtp with token_hash (works even without email)
-            // Use code as token_hash - Supabase magic links can work this way
-            console.log('Attempting verifyOtp with token_hash (code as token)...');
+            // Try verifyOtp with token_hash (alternative format)
+            console.log('Attempting verifyOtp with token_hash...');
             const result2 = await supabase.auth.verifyOtp({
               token_hash: code,
               type: 'magiclink',
@@ -168,8 +186,10 @@ function AuthCallbackContent() {
             console.log('verifyOtp with token_hash failed:', verifyError2);
             
             // Fallback: Try exchangeCodeForSession for magic links with PKCE
-            // This might work if magic link was opened in same browser session
+            // This ONLY works if magic link was opened in same browser session where cookies exist
+            // If opened from email in new tab, this will fail (PKCE requires code verifier in cookies)
             console.log('Attempting exchangeCodeForSession as fallback for magic link...');
+            console.log('Note: This requires PKCE cookies to be available in the same session');
             const { data: sessionData, error: exchangeErr } = await supabase.auth.exchangeCodeForSession(code);
             exchangeError = exchangeErr;
 
@@ -180,6 +200,9 @@ function AuthCallbackContent() {
               router.push('/');
               return;
             }
+            
+            console.log('exchangeCodeForSession failed for magic link:', exchangeError);
+            console.log('This is expected if the magic link was opened in a new tab/window without cookies');
           } else {
             // OAuth flow: Must use exchangeCodeForSession (requires PKCE cookies)
             console.log('OAuth flow detected (no type=magiclink, no email) - attempting exchangeCodeForSession...');

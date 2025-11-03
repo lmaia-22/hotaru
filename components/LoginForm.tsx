@@ -39,6 +39,9 @@ export default function LoginForm() {
       email,
       options: {
         emailRedirectTo: redirectUrl,
+        // Try to use token-based flow instead of PKCE for better compatibility
+        // This may help when magic links are opened in new tabs
+        shouldCreateUser: true,
       },
     });
 
