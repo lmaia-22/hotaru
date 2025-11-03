@@ -59,37 +59,60 @@ export async function createPaste(
 }
 
 export async function getPaste(pasteId: string): Promise<Paste | null> {
-  const data = await redis.get<string>(`${PASTE_PREFIX}${pasteId}`);
+  const data = await redis.get(`${PASTE_PREFIX}${pasteId}`);
   if (!data) return null;
-  return JSON.parse(data) as Paste;
+  
+  // Upstash Redis may return parsed JSON or string
+  if (typeof data === 'string') {
+    try {
+      return JSON.parse(data) as Paste;
+    } catch (e) {
+      console.error('Error parsing paste data:', e);
+      return null;
+    }
+  }
+  
+  // If it's already an object, return it directly
+  return data as Paste;
 }
 
 export async function deletePaste(pasteId: string, userId: string): Promise<boolean> {
-  const paste = await getPaste(pasteId);
-  if (!paste || paste.user_id !== userId) {
+  try {
+    const paste = await getPaste(pasteId);
+    if (!paste || paste.user_id !== userId) {
+      return false;
+    }
+
+    // Delete the paste data
+    await redis.del(`${PASTE_PREFIX}${pasteId}`);
+    
+    // Remove from user's paste list
+    await redis.zrem(`${USER_PASTES_KEY}${userId}`, pasteId);
+    
+    // Remove from public or private lists
+    if (paste.visibility === 'public') {
+      await redis.zrem(PUBLIC_PASTES_KEY, pasteId);
+    } else {
+      // Remove from all shared users' private lists
+      if (paste.shared_with && paste.shared_with.length > 0) {
+        await Promise.all(
+          paste.shared_with.map(async (sharedUserId) => {
+            await redis.zrem(`${PRIVATE_PASTES_KEY}${sharedUserId}`, pasteId);
+          })
+        );
+      }
+      // Remove from creator's private list
+      await redis.zrem(`${PRIVATE_PASTES_KEY}${userId}`, pasteId);
+    }
+
+    // Publish event for real-time updates
+    await publishPasteEvent('deleted', pasteId);
+
+    return true;
+  } catch (error) {
+    console.error('Error deleting paste:', error);
     return false;
   }
-
-  await redis.del(`${PASTE_PREFIX}${pasteId}`);
-  await redis.zrem(`${USER_PASTES_KEY}${userId}`, pasteId);
-  
-  if (paste.visibility === 'public') {
-    await redis.zrem(PUBLIC_PASTES_KEY, pasteId);
-  } else {
-    if (paste.shared_with && paste.shared_with.length > 0) {
-      await Promise.all(
-        paste.shared_with.map(async (sharedUserId) => {
-          await redis.zrem(`${PRIVATE_PASTES_KEY}${sharedUserId}`, pasteId);
-        })
-      );
-    }
-    await redis.zrem(`${PRIVATE_PASTES_KEY}${userId}`, pasteId);
-  }
-
-  // Publish event for real-time updates
-  await publishPasteEvent('deleted', pasteId);
-
-  return true;
 }
 
 export async function getUserPastes(

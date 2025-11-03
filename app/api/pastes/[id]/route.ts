@@ -59,11 +59,27 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const success = await deletePaste(params.id, user.id);
-    if (!success) {
-      return NextResponse.json({ error: 'Paste not found or unauthorized' }, { status: 404 });
+    const pasteId = params.id;
+    console.log(`Attempting to delete paste ${pasteId} for user ${user.id}`);
+    
+    const paste = await getPaste(pasteId);
+    if (!paste) {
+      console.log(`Paste ${pasteId} not found`);
+      return NextResponse.json({ error: 'Paste not found' }, { status: 404 });
     }
 
+    if (paste.user_id !== user.id) {
+      console.log(`User ${user.id} attempted to delete paste owned by ${paste.user_id}`);
+      return NextResponse.json({ error: 'You can only delete your own pastes' }, { status: 403 });
+    }
+
+    const success = await deletePaste(pasteId, user.id);
+    if (!success) {
+      console.error(`Failed to delete paste ${pasteId} for user ${user.id}`);
+      return NextResponse.json({ error: 'Failed to delete paste' }, { status: 500 });
+    }
+
+    console.log(`Successfully deleted paste ${pasteId} for user ${user.id}`);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting paste:', error);

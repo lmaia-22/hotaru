@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import PasteForm from './PasteForm';
 import PasteList from './PasteList';
+import Logo from './Logo';
 import type { Paste } from '@/types/paste';
 
 export default function Dashboard() {
@@ -76,9 +77,7 @@ export default function Dashboard() {
       <nav className="bg-white dark:bg-gray-800 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              Hotaru
-            </h1>
+            <Logo size="md" className="text-gray-900 dark:text-gray-100" />
             <div className="flex items-center gap-4">
               <span className="text-sm text-gray-600 dark:text-gray-400">
                 {user?.email}

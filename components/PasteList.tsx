@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Paste } from '@/types/paste';
 
@@ -16,7 +16,29 @@ export default function PasteList({
   refreshPastes,
 }: PasteListProps) {
   const [expandedPastes, setExpandedPastes] = useState<Set<string>>(new Set());
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const supabase = createClient();
+
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser();
+        if (error) {
+          console.error('Error getting user:', error);
+          return;
+        }
+        if (user) {
+          console.log('Current user ID set:', user.id);
+          setCurrentUserId(user.id);
+        } else {
+          console.log('No user found');
+        }
+      } catch (err) {
+        console.error('Error in getCurrentUser:', err);
+      }
+    };
+    getCurrentUser();
+  }, [supabase]);
 
   const toggleExpand = (pasteId: string) => {
     setExpandedPastes((prev) => {
@@ -30,25 +52,43 @@ export default function PasteList({
     });
   };
 
-  const handleDelete = async (pasteId: string) => {
-    if (!confirm('Are you sure you want to delete this paste?')) {
-      return;
+  const handleDelete = async (pasteId: string, event?: React.MouseEvent) => {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
     }
-
+    
+    console.log('Delete button clicked for paste:', pasteId);
+    console.log('Current user ID:', currentUserId);
+    
+    // Temporary: Skip confirm to test if delete works
+    // TODO: Add custom confirmation modal later
+    console.log('Proceeding with delete (confirmation skipped for testing)...');
+    
     try {
+      console.log('Making DELETE request to:', `/api/pastes/${pasteId}`);
       const response = await fetch(`/api/pastes/${pasteId}`, {
         method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
       });
 
+      console.log('Delete response status:', response.status);
+      
       if (response.ok) {
+        const data = await response.json();
+        console.log('Delete successful:', data);
         onPasteDeleted(pasteId);
         refreshPastes();
       } else {
-        alert('Error deleting paste');
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Error deleting paste:', errorData);
+        alert(`Error deleting paste: ${errorData.error || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Error deleting paste:', error);
-      alert('Error deleting paste');
+      alert('Error deleting paste. Please try again.');
     }
   };
 
@@ -126,12 +166,23 @@ export default function PasteList({
                 >
                   Copy
                 </button>
-                <button
-                  onClick={() => handleDelete(paste.paste_id)}
-                  className="px-3 py-1 text-sm text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 border border-red-300 dark:border-red-600 rounded"
-                >
-                  Delete
-                </button>
+                {/* Show delete button only for own pastes */}
+                {currentUserId && currentUserId === paste.user_id ? (
+                  <button
+                    onClick={(e) => {
+                      console.log('Delete clicked - Paste ID:', paste.paste_id, 'User ID:', paste.user_id, 'Current User:', currentUserId);
+                      handleDelete(paste.paste_id, e);
+                    }}
+                    type="button"
+                    className="px-3 py-1 text-sm text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 border border-red-300 dark:border-red-600 rounded"
+                  >
+                    Delete
+                  </button>
+                ) : currentUserId ? (
+                  <span className="px-3 py-1 text-xs text-gray-400 dark:text-gray-500 italic" title={`Owned by ${paste.user_id}`}>
+                    Not yours
+                  </span>
+                ) : null}
               </div>
             </div>
             <div className="mt-4">
