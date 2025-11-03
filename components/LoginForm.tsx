@@ -31,10 +31,14 @@ export default function LoginForm() {
     // This helps when magic links don't include email in the URL
     localStorage.setItem('hotaru_magic_link_email', email);
 
+    // Include email in redirect URL as query parameter for better reliability
+    // This ensures email is available even if localStorage is cleared
+    const redirectUrl = `${window.location.origin}/auth/callback?email=${encodeURIComponent(email)}`;
+    
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: redirectUrl,
       },
     });
 

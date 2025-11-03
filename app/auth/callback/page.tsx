@@ -88,19 +88,30 @@ function AuthCallbackContent() {
           // Magic link indicators:
           // 1. type='magiclink' is definitive
           // 2. email in URL or localStorage suggests magic link
-          // 3. OAuth NEVER has email (GitHub/Google don't pass email in callback)
+          // 3. We're on /auth/callback (client-side) - OAuth goes to /api/auth/callback (server-side)
+          // 4. OAuth NEVER has email (GitHub/Google don't pass email in callback)
           const isDefinitelyMagicLink = type === 'magiclink';
           const hasEmail = !!email || !!savedEmail;
-          const isLikelyMagicLink = isDefinitelyMagicLink || hasEmail;
-          const isOAuthFlow = !isLikelyMagicLink; // No type=magiclink AND no email = OAuth
+          
+          // IMPORTANT: If we're on /auth/callback (this page), it's likely a magic link
+          // because OAuth redirects go to /api/auth/callback (server-side route)
+          // Magic links from email go to /auth/callback (client-side page)
+          const isOnClientCallback = typeof window !== 'undefined' && window.location.pathname === '/auth/callback';
+          
+          // Magic link if: has type='magiclink' OR has email OR we're on client-side callback route
+          // OAuth only goes to /api/auth/callback, never /auth/callback
+          const isLikelyMagicLink = isDefinitelyMagicLink || hasEmail || isOnClientCallback;
+          const isOAuthFlow = !isLikelyMagicLink; // Only OAuth if definitely not magic link
           
           console.log('Flow detection:', {
             isDefinitelyMagicLink,
             hasEmail,
+            isOnClientCallback,
             isLikelyMagicLink,
             isOAuthFlow,
             emailInUrl: !!email,
             emailInStorage: !!savedEmail,
+            pathname: typeof window !== 'undefined' ? window.location.pathname : 'server',
           });
           
           // Declare error variables in outer scope
@@ -114,6 +125,7 @@ function AuthCallbackContent() {
             // Magic link: Try verifyOtp first (no PKCE needed)
             const emailToUse = email || savedEmail;
             
+            // Try verifyOtp with email if available
             if (emailToUse) {
               console.log('Magic link flow - attempting verifyOtp with email...', emailToUse);
               const result = await supabase.auth.verifyOtp({
@@ -135,8 +147,9 @@ function AuthCallbackContent() {
               console.log('verifyOtp with email failed:', verifyError);
             }
 
-            // Try verifyOtp with token_hash
-            console.log('Attempting verifyOtp with token_hash...');
+            // Try verifyOtp with token_hash (works even without email)
+            // Use code as token_hash - Supabase magic links can work this way
+            console.log('Attempting verifyOtp with token_hash (code as token)...');
             const result2 = await supabase.auth.verifyOtp({
               token_hash: code,
               type: 'magiclink',
@@ -155,6 +168,7 @@ function AuthCallbackContent() {
             console.log('verifyOtp with token_hash failed:', verifyError2);
             
             // Fallback: Try exchangeCodeForSession for magic links with PKCE
+            // This might work if magic link was opened in same browser session
             console.log('Attempting exchangeCodeForSession as fallback for magic link...');
             const { data: sessionData, error: exchangeErr } = await supabase.auth.exchangeCodeForSession(code);
             exchangeError = exchangeErr;
