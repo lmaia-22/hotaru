@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { z } from 'zod';
 
+// Force dynamic rendering since we use cookies
+export const dynamic = 'force-dynamic';
+
 const updateProfileSchema = z.object({
   display_name: z.string().max(100).optional(),
 });

@@ -4,6 +4,9 @@ import { createPaste, getAllAccessiblePastes, getUserPastes } from '@/lib/paste'
 import { checkRateLimit } from '@/lib/rate-limit';
 import { z } from 'zod';
 
+// Force dynamic rendering since we use cookies
+export const dynamic = 'force-dynamic';
+
 const createPasteSchema = z.object({
   content: z.string().max(100 * 1024, 'Content must be less than 100 KB'),
   visibility: z.enum(['public', 'private']),
