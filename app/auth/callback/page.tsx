@@ -83,54 +83,36 @@ function AuthCallbackContent() {
           });
 
           // Determine if this is OAuth or magic link
-          // Rule: type='magiclink' is the ONLY definitive indicator of magic link
-          // OAuth (GitHub/Google): NO type='magiclink' AND typically NO email in URL
           const savedEmail = localStorage.getItem('hotaru_magic_link_email');
           
-          // The ONLY definitive way to know it's a magic link is type='magiclink'
+          // Magic link indicators:
+          // 1. type='magiclink' is definitive
+          // 2. email in URL or localStorage suggests magic link
+          // 3. OAuth NEVER has email (GitHub/Google don't pass email in callback)
           const isDefinitelyMagicLink = type === 'magiclink';
+          const hasEmail = !!email || !!savedEmail;
+          const isLikelyMagicLink = isDefinitelyMagicLink || hasEmail;
+          const isOAuthFlow = !isLikelyMagicLink; // No type=magiclink AND no email = OAuth
           
-          // OAuth: No type='magiclink' means it's likely OAuth (even if email exists in localStorage from previous attempt)
-          // We'll try exchangeCodeForSession first, which works for both OAuth and magic links with PKCE
-          const isLikelyOAuth = !isDefinitelyMagicLink; // If no type='magiclink', assume OAuth or magic link with PKCE
-          
-          // Clear saved email if it's not a magic link (it might be leftover from previous magic link attempt)
-          if (!isDefinitelyMagicLink && savedEmail) {
-            console.log('Clearing saved email from localStorage - this is not a magic link (type=' + type + ')');
-            localStorage.removeItem('hotaru_magic_link_email');
-          }
+          console.log('Flow detection:', {
+            isDefinitelyMagicLink,
+            hasEmail,
+            isLikelyMagicLink,
+            isOAuthFlow,
+            emailInUrl: !!email,
+            emailInStorage: !!savedEmail,
+          });
           
           // Declare error variables in outer scope
           let verifyError: any = null;
           let verifyError2: any = null;
           let exchangeError: any = null;
-          let isOAuthFlow = !isDefinitelyMagicLink; // If not definitely magic link, it's OAuth or magic link with PKCE
           
-          // Strategy: Always try exchangeCodeForSession first (works for OAuth and magic links with PKCE)
-          // Only use verifyOtp if type='magiclink' is explicitly set
-          if (!isDefinitelyMagicLink) {
-            // OAuth: Try exchangeCodeForSession (requires PKCE cookies)
-            // OAuth NEVER uses verifyOtp - only exchangeCodeForSession
-            console.log('OAuth flow detected (no type=magiclink) - attempting exchangeCodeForSession...');
-            console.log('Detection info:', { isDefinitelyMagicLink, hasEmail: !!email, hasType: !!type, hasSavedEmail: !!savedEmail });
-            
-            const { data: sessionData, error: exchangeErr } = await supabase.auth.exchangeCodeForSession(code);
-            exchangeError = exchangeErr;
-
-            if (!exchangeError && sessionData?.session) {
-              console.log('OAuth authentication successful');
-              localStorage.removeItem('hotaru_magic_link_email'); // Clean up if exists
-              await createOrUpdateProfile();
-              router.push('/');
-              return;
-            }
-            
-            console.log('exchangeCodeForSession failed for OAuth:', exchangeError);
-            // Don't try verifyOtp for OAuth - it will always fail
-            // OAuth errors will be handled in the error handling section below
-          } else if (isDefinitelyMagicLink) {
+          // Strategy: Magic links should use verifyOtp first (doesn't need PKCE)
+          // OAuth must use exchangeCodeForSession (requires PKCE)
+          if (isLikelyMagicLink) {
             // Magic link: Try verifyOtp first (no PKCE needed)
-            const emailToUse = savedEmail || email;
+            const emailToUse = email || savedEmail;
             
             if (emailToUse) {
               console.log('Magic link flow - attempting verifyOtp with email...', emailToUse);
@@ -176,7 +158,7 @@ function AuthCallbackContent() {
             console.log('Attempting exchangeCodeForSession as fallback for magic link...');
             const { data: sessionData, error: exchangeErr } = await supabase.auth.exchangeCodeForSession(code);
             exchangeError = exchangeErr;
-            
+
             if (!exchangeError && sessionData?.session) {
               console.log('Magic link authentication successful via exchangeCodeForSession');
               localStorage.removeItem('hotaru_magic_link_email');
@@ -184,11 +166,27 @@ function AuthCallbackContent() {
               router.push('/');
               return;
             }
+          } else {
+            // OAuth flow: Must use exchangeCodeForSession (requires PKCE cookies)
+            console.log('OAuth flow detected (no type=magiclink, no email) - attempting exchangeCodeForSession...');
+            
+            const { data: sessionData, error: exchangeErr } = await supabase.auth.exchangeCodeForSession(code);
+            exchangeError = exchangeErr;
+
+            if (!exchangeError && sessionData?.session) {
+              console.log('OAuth authentication successful');
+              localStorage.removeItem('hotaru_magic_link_email'); // Clean up if exists
+              await createOrUpdateProfile();
+              router.push('/');
+              return;
+            }
+            
+            console.log('exchangeCodeForSession failed for OAuth:', exchangeError);
           }
 
           // All methods failed (if we reach here, none of the above succeeded)
           console.error('All authentication methods failed');
-          console.error('isOAuthFlow:', isOAuthFlow);
+          console.error('Flow type:', isLikelyMagicLink ? 'Magic Link' : 'OAuth');
           console.error('verifyOtp with email error:', verifyError);
           console.error('verifyOtp with token_hash error:', verifyError2);
           console.error('exchangeCodeForSession error:', exchangeError);
@@ -196,24 +194,14 @@ function AuthCallbackContent() {
           let errorMsg = 'Authentication failed. ';
           
           // Check if it's a PKCE issue
-          const isPKCEError = exchangeError?.message.includes('code verifier') || exchangeError?.message.includes('code_verifier');
+          const isPKCEError = exchangeError?.message?.includes('code verifier') || exchangeError?.message?.includes('code_verifier');
           
           // Check if token expired
-          const isTokenExpired = verifyError?.message.includes('expired') || verifyError?.message.includes('invalid') || 
-                                 verifyError2?.message.includes('expired') || verifyError2?.message.includes('invalid');
+          const isTokenExpired = verifyError?.message?.includes('expired') || verifyError?.message?.includes('invalid') || 
+                                 verifyError2?.message?.includes('expired') || verifyError2?.message?.includes('invalid');
           
-          if (isOAuthFlow) {
-            // OAuth-specific error messages
-            if (isPKCEError) {
-              errorMsg += 'OAuth authentication failed: PKCE session expired or cookies not available. ';
-              errorMsg += 'Please try again. Make sure you\'re using the same browser window. ';
-              errorMsg += 'If the problem persists, check your browser\'s cookie settings and ensure third-party cookies are allowed.';
-            } else if (exchangeError) {
-              errorMsg += `OAuth error: ${exchangeError.message}`;
-            } else {
-              errorMsg += 'OAuth authentication failed. Please try again.';
-            }
-          } else {
+          // Determine error message based on flow type
+          if (isLikelyMagicLink) {
             // Magic link-specific error messages
             if (isTokenExpired) {
               errorMsg += 'The magic link has expired or was already used. ';
@@ -224,14 +212,25 @@ function AuthCallbackContent() {
               errorMsg += 'Magic links opened from email may not have access to PKCE cookies. ';
               errorMsg += 'Try requesting the magic link and clicking it in the SAME browser window/tab immediately. ';
               errorMsg += 'Alternatively, use OAuth (GitHub/Google) which handles this better.';
-            } else if (exchangeError) {
-              errorMsg += exchangeError.message;
             } else if (verifyError) {
-              errorMsg += verifyError.message;
+              errorMsg += `Magic link error: ${verifyError.message}`;
             } else if (verifyError2) {
-              errorMsg += verifyError2.message;
+              errorMsg += `Magic link error: ${verifyError2.message}`;
+            } else if (exchangeError) {
+              errorMsg += `Magic link error: ${exchangeError.message}`;
             } else {
               errorMsg += 'Unknown error occurred. The link may have expired or been used already.';
+            }
+          } else {
+            // OAuth-specific error messages
+            if (isPKCEError) {
+              errorMsg += 'OAuth authentication failed: PKCE session expired or cookies not available. ';
+              errorMsg += 'Please try again. Make sure you\'re using the same browser window. ';
+              errorMsg += 'If the problem persists, check your browser\'s cookie settings and ensure third-party cookies are allowed.';
+            } else if (exchangeError) {
+              errorMsg += `OAuth error: ${exchangeError.message}`;
+            } else {
+              errorMsg += 'OAuth authentication failed. Please try again.';
             }
           }
           
