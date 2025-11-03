@@ -1,13 +1,20 @@
 import { Redis } from '@upstash/redis';
 
+// Helper function to clean environment variables (remove quotes and whitespace)
+function cleanEnvVar(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  // Remove surrounding quotes and whitespace
+  return value.trim().replace(/^["']|["']$/g, '');
+}
+
 // For Redis Pub/Sub, we'll use Upstash's REST API
 // Note: Upstash Redis REST API doesn't support native Pub/Sub
 // For real-time updates, consider using Server-Sent Events or WebSockets
 // Alternatively, use Upstash QStash for pub/sub messaging
 
 const getRedisClient = () => {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  const url = cleanEnvVar(process.env.UPSTASH_REDIS_REST_URL);
+  const token = cleanEnvVar(process.env.UPSTASH_REDIS_REST_TOKEN);
 
   if (!url || !token) {
     throw new Error('Redis configuration is missing');

@@ -1,10 +1,17 @@
 import { Redis } from '@upstash/redis';
 
+// Helper function to clean environment variables (remove quotes and whitespace)
+function cleanEnvVar(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  // Remove surrounding quotes and whitespace
+  return value.trim().replace(/^["']|["']$/g, '');
+}
+
 // For local development, we'll use a mock Redis client
 // For production, use Upstash Redis
 const getRedisClient = () => {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  const url = cleanEnvVar(process.env.UPSTASH_REDIS_REST_URL);
+  const token = cleanEnvVar(process.env.UPSTASH_REDIS_REST_TOKEN);
 
   if (!url || !token) {
     const missing = [];
@@ -18,7 +25,7 @@ const getRedisClient = () => {
       `1. Go to https://console.upstash.com\n` +
       `2. Create a Redis database (or use an existing one)\n` +
       `3. Copy the REST URL and REST Token\n` +
-      `4. Add them to your .env.local file`
+      `4. Add them to your .env.local file (without quotes)`
     );
   }
 
