@@ -33,13 +33,22 @@ export default function PasteForm({ onPasteCreated }: PasteFormProps) {
       }
 
       try {
-        const response = await fetch(`/api/users/search?q=${encodeURIComponent(userSearch)}`);
-        if (response.ok) {
-          const data = await response.json();
-          setSearchResults(data.users || []);
+        const response = await fetch(`/api/users/search?q=${encodeURIComponent(userSearch)}`, {
+          credentials: 'include', // Ensure cookies are sent with the request
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          console.error('User search failed:', response.status, errorData);
+          setSearchResults([]);
+          return;
         }
+        
+        const data = await response.json();
+        setSearchResults(data.users || []);
       } catch (error) {
         console.error('Error searching users:', error);
+        setSearchResults([]);
       }
     };
 

@@ -13,6 +13,8 @@ export async function GET(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
+      console.error('User search auth error:', authError);
+      console.error('User:', user);
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -30,11 +32,21 @@ export async function GET(request: NextRequest) {
       .limit(20);
 
     if (error) {
+      console.error('Error querying profiles:', error);
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
+    const filteredUsers = profiles?.filter((p) => p.id !== user.id) || [];
+    
+    console.log('User search results:', {
+      query,
+      totalProfiles: profiles?.length || 0,
+      filteredCount: filteredUsers.length,
+      currentUserId: user.id,
+    });
+
     return NextResponse.json({
-      users: profiles?.filter((p) => p.id !== user.id) || [],
+      users: filteredUsers,
     });
   } catch (error) {
     console.error('Error searching users:', error);

@@ -56,13 +56,18 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json();
     const validated = updateProfileSchema.parse(body);
 
+    // Use upsert to create profile if it doesn't exist, or update if it does
+    // This ensures the profile is created for users who log in via magic link
     const { data: profile, error } = await supabase
       .from('profiles')
-      .update({
-        ...validated,
+      .upsert({
+        id: user.id,
+        email: user.email || '',
+        display_name: validated.display_name || user.user_metadata?.display_name || user.email?.split('@')[0] || null,
         updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'id',
       })
-      .eq('id', user.id)
       .select()
       .single();
 
